@@ -1,0 +1,26 @@
+DECLARE menu : INTEGER
+CONSTANT database_url : ":///sqlite3..."
+CONSTANT credentials = "username, password"
+
+IMPORT * FROM studentManage.txt
+
+WHILE TRUE DO
+	INPUT ("
+	Please input a number:
+	1.Student Management
+	2.Subject Management
+	3.Class Management
+	4.Examination Management
+	5.Report ", menu)
+	
+	CASE OF menu
+		1 : CALL StudentManagement()
+		2 : CALL SubjectManagement()
+		3 : CALL ClassManagement()
+		4 : CALL ExamManagement()
+		5 : CALL Report()
+		OTHERWISE BREAK
+	ENDCASE
+	
+ENDWHILE
+

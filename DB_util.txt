@@ -1,0 +1,39 @@
+CONSTANT database_url : ":///sqlite3..."
+CONSTANT credentials = "username, password"
+
+FUNCTION checkSubjectExist(subject name : STRING) RETURNS BOOLEAN
+	DECLARE result : BOOLEAN
+	
+	CONSTANT query = " """
+	SELECT EXISTS(SELECT 1 FROM Subjects WHERE subjectName = ?);
+	""", subjectName"
+	
+	result = EXECUTE query
+	
+	RETURN result
+	
+ENDFUNCTION
+
+FUNCTION checkStudentExist(studentName : STRING) RETURNS BOOLEAN
+	DECLARE result : BOOLEAN
+
+	CONSTANT query = " """
+	SELECT EXISTS(SELECT 1 FROM Students WHERE studentName = ?);
+	""", studentName"
+	
+	result = EXECUTE query
+	
+	RETURN result
+ENDFUNCTION
+
+FUNCTION checkClassExist(class: INTEGER) RETURNS BOOLEAN
+	DECLARE result : BOOLEAN
+
+	CONSTANT query = " """
+	SELECT EXISTS(SELECT 1 FROM Classes WHERE class = ?);
+	""", class"
+	
+	result = EXECUTE query
+	
+	RETURN result
+ENDFUNCTION

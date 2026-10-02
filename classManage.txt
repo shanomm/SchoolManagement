@@ -1,0 +1,151 @@
+
+	DECLARE operation : INTEGER
+	
+	WHILE TRUE DO
+	
+		CALL ShowAllSubject()
+		
+		INPUT("
+		Please enter a number
+		1.Add new subject
+		2.Delete subject
+		3.Update subject
+		5.exit
+		", operation)
+		
+		CASE OF operation
+			1 : CALL AddSubject()
+			2 : CALL DeleteSubject()
+			3 : CALL UpdateSubject()
+			4 : CALL SearchSubject()
+			
+			// This module is imported
+			5 : CALL AddStudentToSubject()
+			6 : CALL SearchSubjectFromStudent()
+			7 : CALL UpdateSubjectOfStudent()
+			8 : CALL RemoveSubjectOfStudent()
+			9 : BREAK
+			
+	ENDWHILE
+	
+ENDPROCEDURE
+
+// =====================      Operation Selection     ======================
+
+PROCEDURE AddSubject()
+	DECLARE subjectName : STRING
+	
+	//Ask for subject name
+	INPUT("Please enter name and age", subjectName, age)
+	
+	//Validate name and age
+	WHILE NOT IsAlphanumeric(subjectName) DO
+		INPUT("Please enter alphanumeric name", subjectName)
+	ENDWHILE
+	
+	//Adding new subject to subject table && Output error if found
+	DB_AddSubject(SubjectName)
+		
+ENDPROCEDURE
+
+PROCEDURE DeleteSubject()
+	DECLARE subjectName : STRING
+	
+	//Ask for subject name
+	INPUT("Please enter name and class", subjectName)
+	
+	//Validate subject name
+	WHILE NOT IsAlphanumeric(subjectName) DO
+		INPUT("Please enter alphanumeric name", subjectName)
+	ENDWHILE
+	
+	
+	
+	//Adding new subject to subject table && Output error if found
+	DB_DeleteSubject(subjectName, class)
+		
+ENDPROCEDURE
+
+PROCEDURE UpdateSubject()
+	DECLARE subjectName : STRING
+	DECLARE newName : STRING
+	
+	INPUT("Updating, Please enter current name and new name", subjectName, newName)
+	WHILE NOT IsAlphanumeric(subjectName) OR NOT IsAlphanumeric(newName) DO
+		INPUT("Please enter alphanumeric name", subjectName, newName)
+	ENDWHILE
+	DB_UpdateSubject(subjectName, newName)
+ENDPROCEDURE
+
+// ==============           DB Operation          =====================
+PROCEDURE DB_AddSubject(subjectName : STRING)
+	
+	CONSTANT connection = ConnectToDatabase(database_url, credential)
+	
+	IF connection == FALSE THEN
+		OUTPUT "Connection erorr: " + connection.error
+		BREAK
+	ENDIF
+	
+	CONSTANT query = " """
+		INSERT INTO Subjects (subjectName)
+		VALUES (?); """, subjectName"
+
+
+	EXECUTE query
+	
+	CALL CloseDatabaseConnection()
+	
+ENDPROCEDURE
+
+
+
+
+PROCEDURE DB_DeleteSubject(subjectName : STRING)
+	
+	//Connect to database
+	CONSTANT connection = ConnectToDatabase(database_url, credential)
+	
+	//Check connection
+	IF connection == FALSE THEN
+		OUTPUT "Connection erorr: " + connection.error
+		BREAK
+	ENDIF
+	
+	CONSTANT query = " """
+		DELETE FROM Subjects 
+		WHERE subjectName = ?; """, subjectName"
+
+	IF checkSubjectExist(subjectName) THEN
+		OUTPUT "Subject deleted"
+		EXECUTE query
+	ELSE
+		OUTPUT "Subject Not Found, Please enter again"
+	ENDIF
+	
+	//Close connection
+	CALL CloseDatabaseConnection()
+	
+ENDPROCEDURE
+
+PROCEDURE DB_UpdateSubject(subjectName : STRING, newName : STRING)
+
+	CONSTANT connection = ConnectToDatabase(database_url, credential)
+	IF connection == FALSE THEN
+		OUTPUT "Connection erorr: " + connection.error
+		BREAK
+	ENDIF
+	
+	CONSTANT query = " """
+		UPDATE Subjects
+		SET subjectName = ?
+		WHERE subjectName = ?
+		""", newName, subjectName"
+		
+	EXECUTE query
+	
+	OUTPUT "successfully updated name to " + newName
+	CALL CloseDatabaseConnection()
+	
+ENDPROCEDURE
+

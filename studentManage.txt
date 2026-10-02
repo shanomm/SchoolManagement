@@ -1,0 +1,219 @@
+CONSTANT database_url : ":///sqlite3..."
+CONSTANT credentials = "username, password"
+
+/* ======================================                      STUDENT MANAGAEMENT                      ======================= */
+
+PROCEDURE StudentManagement()
+
+	DECLARE operation : INTEGER
+	
+	WHILE TRUE DO
+	
+		//Show all the students
+		CALL ShowAllStudent()
+		
+		//Then, ask for CRUD operation
+		INPUT("
+		Please enter a number
+		1.Add new student
+		2.Delete student
+		3.Update student
+		4.Search student
+		5.exit
+		", operation)
+		
+		CASE OF operation
+			1 : CALL AddStudent()
+			2 : CALL DeleteStudent()
+			3 : CALL UpdateStudent()
+			4 : CALL SearchStudent()
+			5 : BREAK
+			
+	ENDWHILE
+	
+ENDPROCEDURE
+
+// =====================      Operation Selection     ======================
+
+PROCEDURE ShowAllStudent()
+	CONSTANT connection = ConnectToDatabase(database_url, credential)
+	CONSTANT query = " """ SELECT * FROM Students """ "
+	DECLARE result : ARRAY OF DICTIONARY
+	IF connection == FALSE THEN
+		OUTPUT "connection error: " + connection.error
+	ENDIF
+	result = EXECUTE query
+	FOR EACH record in result
+		FOR EACH (key, value) IN record
+			OUTPUT key, value
+		ENDFOR
+	NEXT record
+	
+ENDPROCEDURE
+
+FUNCTION checkStudentExist(name : STRING, class : INTEGER) RETURNS BOOLEAN
+	DECLARE result : ARRAY OF DICTIONARY
+	CONSTANT query = " """SELECT studentName FROM Students WHERE studentName = ? AND class = ?""",name, class"
+	CONSTANT connection = ConnectToDatabase(database_url, credential)
+	IF connection == FALSE Then
+		OUTPUT "connection error " + connection.error
+		RETURN FALSE
+	ENDIF
+	
+	SET result = EXECUTE query
+	IF COUNT(result) > 0 THEN
+		RETURN TRUE
+	ELSE
+		RETURN FALSE
+	ENDIF
+	
+ENDFUNCTION
+
+PROCEDURE AddStudent()
+	DECLARE studentName : STRING
+	DECLARE age : INT
+	
+	//Ask for name and age
+	INPUT("Please enter name and age", studentName, age)
+	
+	//Validate name and age
+	WHILE NOT IsAlphanumeric(studentName) OR NOT IsNumeric(age) DO
+		INPUT("Please enter alphanumeric name and age", studentName, age)
+	ENDWHILE
+	
+	//Adding new student to Student table && Output error if found
+	DB_AddStudent(studentName, age)
+		
+ENDPROCEDURE
+
+PROCEDURE DeleteStudent()
+	DECLARE studentName : STRING
+	DECLARE class : INTEGER
+	
+	//Ask for name and class
+	INPUT("Please enter name and class", studentName, class)
+	
+	//Validate name and class
+	WHILE NOT IsAlphanumeric(studentName) OR NOT IsNumeric(class) DO
+		INPUT("Please enter alphanumeric name and class", studentName, class)
+	ENDWHILE
+	
+	
+	
+	//Adding new student to Student table && Output error if found
+	DB_DeleteStudent(studentName, class)
+		
+ENDPROCEDURE
+
+PROCEDURE UpdateStudent()
+	DECLARE studentName : STRING
+	DECLARE class : INTEGER
+	DECLARE age : INTEGER
+	
+	INPUT("Updating, Please enter name, class and age", studentName, class, age)
+	WHILE NOT IsAlphanumeric(studentName) OR NOT IsNumeric(class) OR NOT IsNumeric(age) DO
+		INPUT("Please enter alphanumeric name and class, age", studentName, class, age)
+	ENDWHILE
+	DB_UpdateStudent(studentName, class, age)
+ENDPROCEDURE
+
+PROCEDURE SearchStudent()
+	DECLARE studentName : STRING
+	
+	INPUT("Searching, Please enter name", studentName)
+	WHILE NOT IsAlphanumeric(studentName) DO
+		INPUT("Please enter alphanumeric name", studentName)
+	ENDWHILE
+	DB_SearchStudent(studentName)
+ENDPROCEDURE
+
+// ==============           DB Operation          =====================
+PROCEDURE DB_AddStudent(studentName : STRING, age : INT)
+	
+	//Connect to database
+	CONSTANT connection = ConnectToDatabase(database_url, credential)
+	
+	//Check connection
+	IF connection == FALSE THEN
+		OUTPUT "Connection erorr: " + connection.error
+		BREAK
+	ENDIF
+	
+	CONSTANT query = " """
+		INSERT INTO Students (classID, name, age)
+		VALUES (-1, ?, ?); """, studentName, age "
+
+	//Execute the query
+	EXECUTE query
+	
+	//Close connection
+	CALL CloseDatabaseConnection()
+	
+ENDPROCEDURE
+
+
+
+
+PROCEDURE DB_DeleteStudent(studentName : STRING)
+	
+	//Connect to database
+	CONSTANT connection = ConnectToDatabase(database_url, credential)
+	
+	//Check connection
+	IF connection == FALSE THEN
+		OUTPUT "Connection erorr: " + connection.errora
+		BREAK
+	ENDIF
+	
+	CONSTANT query = " """
+		DELETE FROM Students
+		WHERE studentName =?;
+		""", studentName"
+
+	IF checkStudentExist(studentName) THEN
+		OUTPUT "Student deleted"
+		EXECUTE query
+	ELSE
+		OUTPUT "Student Not Found, Please enter again"
+	ENDIF
+	
+	//Close connection
+	CALL CloseDatabaseConnection()
+	
+ENDPROCEDURE
+
+PROCEDURE DB_UpdateStudent(studentName : STRING, class : INTEGER, age : INTEGER)
+	CONSTANT connection = ConnectToDatabase(database_url, credential)
+	IF connection == FALSE THEN s
+		OUTPUT "Connection erorr: " + connection.error
+		BREAK
+	ENDIF
+	CONSTANT query = " """
+		UPDATE Students
+		SET studentName = ?, class = ?, age = ?
+		WHERE studentName = ?
+		""", studentName, class, age, studentName "
+	EXECUTE query
+	CALL CloseDatabaseConnection()
+	
+ENDPROCEDURE
+
+PROCEDURE DB_SearchStudent(studentName : STRING)
+	DECLARE result : ARRAY[1:1] OF DICTIONARY
+	CONSTANT connection = ConnectToDatabase(database_url, credential)
+	IF connection == FALSE THEN
+		OUTPUT "Connection erorr: " + connection.error
+		BREAK
+	ENDIF
+	CONSTANT query = " """
+		SELECT studentName
+		FROM Students
+		WHERE studentName = ?
+		""", studentName"
+	SET result = EXECUTE query
+	FOR EACH (key, value) IN result[0] DO
+		OUTPUT key, value
+	END FOR
+	CALL CloseDatabaseConnection()
+	
+ENDPROCEDURE
