@@ -1,151 +1,161 @@
+CONSTANT database_url : ":///sqlite3..."
+CONSTANT credentials = "username, password"
+
+IMPORT IsValidName, checkClassExist, checkClassNameExist FROM DB_util.txt
+
+PROCEDURE ClassManagement()
 
 	DECLARE operation : INTEGER
-	
+
 	WHILE TRUE DO
-	
-		CALL ShowAllSubject()
-		
+
+		CALL ShowAllClass()
+
 		INPUT("
 		Please enter a number
-		1.Add new subject
-		2.Delete subject
-		3.Update subject
-		5.exit
+		1.Add new class
+		2.Delete class
+		3.Update class
+		4.exit
 		", operation)
-		
+
 		CASE OF operation
-			1 : CALL AddSubject()
-			2 : CALL DeleteSubject()
-			3 : CALL UpdateSubject()
-			4 : CALL SearchSubject()
-			
-			// This module is imported
-			5 : CALL AddStudentToSubject()
-			6 : CALL SearchSubjectFromStudent()
-			7 : CALL UpdateSubjectOfStudent()
-			8 : CALL RemoveSubjectOfStudent()
-			9 : BREAK
-			
+			1 : CALL AddClass()
+			2 : CALL DeleteClass()
+			3 : CALL UpdateClass()
+			4 : RETURN
+			OTHERWISE : OUTPUT "Invalid option, please enter 1-4"
+		ENDCASE
+
 	ENDWHILE
-	
+
 ENDPROCEDURE
 
 // =====================      Operation Selection     ======================
 
-PROCEDURE AddSubject()
-	DECLARE subjectName : STRING
-	
-	//Ask for subject name
-	INPUT("Please enter name and age", subjectName, age)
-	
-	//Validate name and age
-	WHILE NOT IsAlphanumeric(subjectName) DO
-		INPUT("Please enter alphanumeric name", subjectName)
-	ENDWHILE
-	
-	//Adding new subject to subject table && Output error if found
-	DB_AddSubject(SubjectName)
-		
+PROCEDURE ShowAllClass()
+	DECLARE result : ARRAY OF DICTIONARY
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+	IF connection == FALSE THEN
+		OUTPUT "Connection error: " + connection.error
+		RETURN
+	ENDIF
+	result = EXECUTE "SELECT * FROM Class"
+	CALL CloseDatabaseConnection()
+	IF COUNT(result) == 0 THEN
+		OUTPUT "No classes found"
+		RETURN
+	ENDIF
+	FOR EACH record IN result
+		FOR EACH (key, value) IN record
+			OUTPUT key, value
+		NEXT
+	NEXT record
 ENDPROCEDURE
 
-PROCEDURE DeleteSubject()
-	DECLARE subjectName : STRING
-	
-	//Ask for subject name
-	INPUT("Please enter name and class", subjectName)
-	
-	//Validate subject name
-	WHILE NOT IsAlphanumeric(subjectName) DO
-		INPUT("Please enter alphanumeric name", subjectName)
+PROCEDURE AddClass()
+	DECLARE className : STRING
+
+	INPUT("Please enter class name", className)
+	WHILE NOT IsValidName(className) DO
+		INPUT("Invalid name, please enter again", className)
 	ENDWHILE
-	
-	
-	
-	//Adding new subject to subject table && Output error if found
-	DB_DeleteSubject(subjectName, class)
-		
+
+	IF checkClassNameExist(className) THEN
+		OUTPUT "Class already exists"
+		RETURN
+	ENDIF
+
+	CALL DB_AddClass(className)
 ENDPROCEDURE
 
-PROCEDURE UpdateSubject()
-	DECLARE subjectName : STRING
+PROCEDURE DeleteClass()
+	DECLARE classID : INTEGER
+
+	INPUT("Please enter class ID to delete", classID)
+	WHILE NOT IsNumeric(classID) DO
+		INPUT("Please enter a numeric class ID", classID)
+	ENDWHILE
+
+	CALL DB_DeleteClass(classID)
+ENDPROCEDURE
+
+PROCEDURE UpdateClass()
+	DECLARE classID : INTEGER
 	DECLARE newName : STRING
-	
-	INPUT("Updating, Please enter current name and new name", subjectName, newName)
-	WHILE NOT IsAlphanumeric(subjectName) OR NOT IsAlphanumeric(newName) DO
-		INPUT("Please enter alphanumeric name", subjectName, newName)
+
+	INPUT("Updating, please enter class ID and new name", classID, newName)
+	WHILE NOT IsNumeric(classID) OR NOT IsValidName(newName) DO
+		INPUT("Invalid input, please enter class ID and new name", classID, newName)
 	ENDWHILE
-	DB_UpdateSubject(subjectName, newName)
+
+	CALL DB_UpdateClass(classID, newName)
 ENDPROCEDURE
 
 // ==============           DB Operation          =====================
-PROCEDURE DB_AddSubject(subjectName : STRING)
-	
-	CONSTANT connection = ConnectToDatabase(database_url, credential)
-	
+PROCEDURE DB_AddClass(className : STRING)
+
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
 	IF connection == FALSE THEN
-		OUTPUT "Connection erorr: " + connection.error
-		BREAK
+		OUTPUT "Connection error: " + connection.error
+		RETURN
 	ENDIF
-	
-	CONSTANT query = " """
-		INSERT INTO Subjects (subjectName)
-		VALUES (?); """, subjectName"
 
+	EXECUTE "INSERT INTO Class (className) VALUES (?)" WITH (className)
+	OUTPUT "Class created"
 
-	EXECUTE query
-	
 	CALL CloseDatabaseConnection()
-	
+
 ENDPROCEDURE
 
+PROCEDURE DB_DeleteClass(classID : INTEGER)
+	DECLARE result : ARRAY OF DICTIONARY
 
-
-
-PROCEDURE DB_DeleteSubject(subjectName : STRING)
-	
-	//Connect to database
-	CONSTANT connection = ConnectToDatabase(database_url, credential)
-	
-	//Check connection
-	IF connection == FALSE THEN
-		OUTPUT "Connection erorr: " + connection.error
-		BREAK
+	// Check BEFORE connecting
+	IF NOT checkClassExist(classID) THEN
+		OUTPUT "Class Not Found, Please enter again"
+		RETURN
 	ENDIF
-	
-	CONSTANT query = " """
-		DELETE FROM Subjects 
-		WHERE subjectName = ?; """, subjectName"
 
-	IF checkSubjectExist(subjectName) THEN
-		OUTPUT "Subject deleted"
-		EXECUTE query
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+	IF connection == FALSE THEN
+		OUTPUT "Connection error: " + connection.error
+		RETURN
+	ENDIF
+
+	// Block deletion while students are still assigned to the class
+	result = EXECUTE "SELECT COUNT(*) AS total FROM Student WHERE classID = ?" WITH (classID)
+	IF result[0]["total"] > 0 THEN
+		OUTPUT "Cannot delete: " + result[0]["total"] + " student(s) still in this class"
 	ELSE
-		OUTPUT "Subject Not Found, Please enter again"
+		EXECUTE "DELETE FROM Class WHERE classID = ?" WITH (classID)
+		OUTPUT "Class deleted"
 	ENDIF
-	
-	//Close connection
+
 	CALL CloseDatabaseConnection()
-	
+
 ENDPROCEDURE
 
-PROCEDURE DB_UpdateSubject(subjectName : STRING, newName : STRING)
+PROCEDURE DB_UpdateClass(classID : INTEGER, newName : STRING)
 
-	CONSTANT connection = ConnectToDatabase(database_url, credential)
+	IF NOT checkClassExist(classID) THEN
+		OUTPUT "Class Not Found"
+		RETURN
+	ENDIF
+
+	IF checkClassNameExist(newName) THEN
+		OUTPUT "A class with that name already exists"
+		RETURN
+	ENDIF
+
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
 	IF connection == FALSE THEN
-		OUTPUT "Connection erorr: " + connection.error
-		BREAK
+		OUTPUT "Connection error: " + connection.error
+		RETURN
 	ENDIF
-	
-	CONSTANT query = " """
-		UPDATE Subjects
-		SET subjectName = ?
-		WHERE subjectName = ?
-		""", newName, subjectName"
-		
-	EXECUTE query
-	
-	OUTPUT "successfully updated name to " + newName
-	CALL CloseDatabaseConnection()
-	
-ENDPROCEDURE
 
+	EXECUTE "UPDATE Class SET className = ? WHERE classID = ?" WITH (newName, classID)
+	OUTPUT "Successfully updated name to " + newName
+	CALL CloseDatabaseConnection()
+
+ENDPROCEDURE

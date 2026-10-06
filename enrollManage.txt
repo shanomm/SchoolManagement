@@ -1,0 +1,171 @@
+CONSTANT database_url : ":///sqlite3..."
+CONSTANT credentials = "username, password"
+
+IMPORT IsValidName, checkSubjectExist, checkStudentExist, checkEnrollmentExist FROM DB_util.txt
+
+/*
+	5 : CALL AddStudentToSubject()
+	6 : CALL SearchSubjectFromStudent()
+	7 : CALL UpdateSubjectOfStudent()
+	8 : CALL RemoveSubjectOfStudent()
+	All four procedures take no parameters and read their own input.
+*/
+
+PROCEDURE AddStudentToSubject()
+	DECLARE studentName : STRING
+	DECLARE subjectName : STRING
+
+	INPUT("Please enter student name and subject", studentName, subjectName)
+
+	IF NOT IsValidName(studentName) OR NOT IsValidName(subjectName) THEN
+		OUTPUT "Names may contain only letters, numbers and spaces"
+		RETURN
+	ENDIF
+
+	IF NOT checkStudentExist(studentName) OR NOT checkSubjectExist(subjectName) THEN
+		OUTPUT "Student or subject does not exist"
+		RETURN
+	ENDIF
+
+	IF checkEnrollmentExist(studentName, subjectName) THEN
+		OUTPUT "Student is already enrolled in this subject"
+		RETURN
+	ENDIF
+
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+	IF connection == FALSE THEN
+		OUTPUT "Connection error: " + connection.error
+		RETURN
+	ENDIF
+
+	EXECUTE "INSERT INTO Enrollment (studentID, subjectID) VALUES (
+	           (SELECT studentID FROM Student WHERE studentName = ?),
+	           (SELECT subjectID FROM Subject WHERE subjectName = ?))"
+	        WITH (studentName, subjectName)
+
+	CALL CloseDatabaseConnection()
+	OUTPUT "Successfully added " + studentName + " to " + subjectName
+
+ENDPROCEDURE
+
+PROCEDURE SearchSubjectFromStudent()
+	DECLARE studentName : STRING
+	DECLARE result : ARRAY OF DICTIONARY
+
+	INPUT("Please enter student name", studentName)
+
+	IF NOT IsValidName(studentName) OR NOT checkStudentExist(studentName) THEN
+		OUTPUT "Student not found"
+		RETURN
+	ENDIF
+
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+	IF connection == FALSE THEN
+		OUTPUT "Connection error: " + connection.error
+		RETURN
+	ENDIF
+
+	SET result = EXECUTE "SELECT subjectName FROM Subject
+	                      JOIN Enrollment ON Enrollment.subjectID = Subject.subjectID
+	                      JOIN Student ON Student.studentID = Enrollment.studentID
+	                      WHERE studentName = ?" WITH (studentName)
+
+	//close connection
+	CALL CloseDatabaseConnection()
+
+	IF COUNT(result) == 0 THEN
+		OUTPUT studentName + " has no subjects"
+		RETURN
+	ENDIF
+
+	OUTPUT studentName + "'s subjects:"
+	FOR EACH row IN result
+		OUTPUT row["subjectName"]
+	ENDFOR
+
+ENDPROCEDURE
+
+PROCEDURE UpdateSubjectOfStudent()
+	DECLARE studentName : STRING
+	DECLARE currentSubject : STRING
+	DECLARE newSubject : STRING
+
+	INPUT("Please enter student name, current subject and new subject", studentName, currentSubject, newSubject)
+
+	IF NOT IsValidName(studentName) OR NOT IsValidName(currentSubject) OR NOT IsValidName(newSubject) THEN
+		OUTPUT "Names may contain only letters, numbers and spaces"
+		RETURN
+	ENDIF
+
+	IF NOT checkStudentExist(studentName) OR NOT checkSubjectExist(currentSubject) OR NOT checkSubjectExist(newSubject) THEN
+		OUTPUT "Student or subject does not exist"
+		RETURN
+	ENDIF
+
+	IF NOT checkEnrollmentExist(studentName, currentSubject) THEN
+		OUTPUT "Student is not enrolled in " + currentSubject
+		RETURN
+	ENDIF
+
+	IF checkEnrollmentExist(studentName, newSubject) THEN
+		OUTPUT "Student is already enrolled in " + newSubject
+		RETURN
+	ENDIF
+
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+	IF connection == FALSE THEN
+		OUTPUT "Connection error: " + connection.error
+		RETURN
+	ENDIF
+
+	// NOTE: Exam rows are linked by enrollID, so existing exam scores stay attached to the new subject.
+	EXECUTE "UPDATE Enrollment
+	         SET subjectID = (SELECT subjectID FROM Subject WHERE subjectName = ?)
+	         WHERE studentID = (SELECT studentID FROM Student WHERE studentName = ?)
+	           AND subjectID = (SELECT subjectID FROM Subject WHERE subjectName = ?)"
+	        WITH (newSubject, studentName, currentSubject)
+
+	CALL CloseDatabaseConnection()
+	OUTPUT "Successfully changed " + currentSubject + " to " + newSubject
+
+ENDPROCEDURE
+
+PROCEDURE RemoveSubjectOfStudent()
+	DECLARE studentName : STRING
+	DECLARE subjectName : STRING
+
+	INPUT("Please enter student and subject to remove", studentName, subjectName)
+
+	IF NOT IsValidName(studentName) OR NOT IsValidName(subjectName) THEN
+		OUTPUT "Names may contain only letters, numbers and spaces"
+		RETURN
+	ENDIF
+
+	IF NOT checkEnrollmentExist(studentName, subjectName) THEN
+		OUTPUT "Student is not enrolled in this subject"
+		RETURN
+	ENDIF
+
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+	IF connection == FALSE THEN
+		OUTPUT "Connection error: " + connection.error
+		RETURN
+	ENDIF
+
+	CONSTANT sid = "(SELECT studentID FROM Student WHERE studentName = ?)"
+	CONSTANT subid = "(SELECT subjectID FROM Subject WHERE subjectName = ?)"
+
+	// SQLite does not support DELETE ... JOIN, so subqueries are used.
+	// Exam rows go first so the Enrollment foreign key is not violated.
+	BEGIN TRANSACTION
+	EXECUTE "DELETE FROM Exam WHERE enrollID IN
+	         (SELECT enrollID FROM Enrollment WHERE studentID = " + sid + " AND subjectID = " + subid + ")"
+	        WITH (studentName, subjectName)
+	EXECUTE "DELETE FROM Enrollment WHERE studentID = " + sid + " AND subjectID = " + subid
+	        WITH (studentName, subjectName)
+	COMMIT
+
+	CALL CloseDatabaseConnection()
+	OUTPUT "Successfully removed subject from student"
+
+ENDPROCEDURE

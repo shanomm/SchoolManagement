@@ -1,26 +1,31 @@
+IMPORT StudentManagement FROM studentManage.txt
+IMPORT SubjectManagement FROM subjectManage.txt
+IMPORT ClassManagement FROM classManage.txt
+IMPORT ExamManagement FROM examManage.txt    
+IMPORT Report FROM report.txt                
+
 DECLARE menu : INTEGER
-CONSTANT database_url : ":///sqlite3..."
-CONSTANT credentials = "username, password"
+DECLARE running : BOOLEAN
+SET running = TRUE
 
-IMPORT * FROM studentManage.txt
-
-WHILE TRUE DO
+WHILE running DO
 	INPUT ("
 	Please input a number:
 	1.Student Management
 	2.Subject Management
 	3.Class Management
 	4.Examination Management
-	5.Report ", menu)
-	
+	5.Report
+	6.Exit ", menu)
+
 	CASE OF menu
 		1 : CALL StudentManagement()
 		2 : CALL SubjectManagement()
 		3 : CALL ClassManagement()
 		4 : CALL ExamManagement()
 		5 : CALL Report()
-		OTHERWISE BREAK
+		6 : SET running = FALSE
+		OTHERWISE : OUTPUT "Invalid option, please enter 1-6"
 	ENDCASE
-	
-ENDWHILE
 
+ENDWHILE

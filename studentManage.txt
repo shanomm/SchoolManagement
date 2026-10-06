@@ -1,17 +1,22 @@
 CONSTANT database_url : ":///sqlite3..."
 CONSTANT credentials = "username, password"
 
-/* ======================================                      STUDENT MANAGAEMENT                      ======================= */
+IMPORT IsValidName, checkStudentInClassExist, checkClassExist FROM DB_util.txt
+
+CONSTANT MIN_AGE = 3   
+CONSTANT MAX_AGE = 30
+
+/* ======================================                      STUDENT MANAGEMENT                      ======================= */
 
 PROCEDURE StudentManagement()
 
 	DECLARE operation : INTEGER
-	
+
 	WHILE TRUE DO
-	
+
 		//Show all the students
 		CALL ShowAllStudent()
-		
+
 		//Then, ask for CRUD operation
 		INPUT("
 		Please enter a number
@@ -21,199 +26,215 @@ PROCEDURE StudentManagement()
 		4.Search student
 		5.exit
 		", operation)
-		
+
 		CASE OF operation
 			1 : CALL AddStudent()
 			2 : CALL DeleteStudent()
 			3 : CALL UpdateStudent()
 			4 : CALL SearchStudent()
-			5 : BREAK
-			
+			5 : RETURN
+			OTHERWISE : OUTPUT "Invalid option, please enter 1-5"
+		ENDCASE
+
 	ENDWHILE
-	
+
 ENDPROCEDURE
 
 // =====================      Operation Selection     ======================
 
 PROCEDURE ShowAllStudent()
-	CONSTANT connection = ConnectToDatabase(database_url, credential)
-	CONSTANT query = " """ SELECT * FROM Students """ "
 	DECLARE result : ARRAY OF DICTIONARY
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+	CONSTANT query = "SELECT * FROM Student"
 	IF connection == FALSE THEN
 		OUTPUT "connection error: " + connection.error
+		RETURN
 	ENDIF
 	result = EXECUTE query
-	FOR EACH record in result
+	CALL CloseDatabaseConnection()
+	IF COUNT(result) == 0 THEN
+		OUTPUT "No students found"
+		RETURN
+	ENDIF
+	FOR EACH record IN result
 		FOR EACH (key, value) IN record
 			OUTPUT key, value
-		ENDFOR
+		NEXT
 	NEXT record
-	
-ENDPROCEDURE
 
-FUNCTION checkStudentExist(name : STRING, class : INTEGER) RETURNS BOOLEAN
-	DECLARE result : ARRAY OF DICTIONARY
-	CONSTANT query = " """SELECT studentName FROM Students WHERE studentName = ? AND class = ?""",name, class"
-	CONSTANT connection = ConnectToDatabase(database_url, credential)
-	IF connection == FALSE Then
-		OUTPUT "connection error " + connection.error
-		RETURN FALSE
-	ENDIF
-	
-	SET result = EXECUTE query
-	IF COUNT(result) > 0 THEN
-		RETURN TRUE
-	ELSE
-		RETURN FALSE
-	ENDIF
-	
-ENDFUNCTION
+ENDPROCEDURE
 
 PROCEDURE AddStudent()
 	DECLARE studentName : STRING
-	DECLARE age : INT
-	
-	//Ask for name and age
-	INPUT("Please enter name and age", studentName, age)
-	
-	//Validate name and age
-	WHILE NOT IsAlphanumeric(studentName) OR NOT IsNumeric(age) DO
-		INPUT("Please enter alphanumeric name and age", studentName, age)
+	DECLARE age : INTEGER
+	DECLARE classID : INTEGER
+
+	//Ask for name, class and age
+	INPUT("Please enter name, class ID and age", studentName, classID, age)
+
+	//Validate input
+	WHILE NOT IsValidName(studentName) OR NOT IsNumeric(classID) OR NOT IsNumeric(age) DO
+		INPUT("Invalid input. Enter name, class ID and age", studentName, classID, age)
 	ENDWHILE
-	
-	//Adding new student to Student table && Output error if found
-	DB_AddStudent(studentName, age)
-		
+
+	IF age < MIN_AGE OR age > MAX_AGE THEN
+		OUTPUT "Age must be between " + MIN_AGE + " and " + MAX_AGE
+		RETURN
+	ENDIF
+
+	IF NOT checkClassExist(classID) THEN
+		OUTPUT "Class not found"
+		RETURN
+	ENDIF
+
+	IF checkStudentInClassExist(studentName, classID) THEN
+		OUTPUT "Student already exists in this class"
+		RETURN
+	ENDIF
+
+	//Adding new student to Student table
+	CALL DB_AddStudent(studentName, classID, age)
+
 ENDPROCEDURE
 
 PROCEDURE DeleteStudent()
 	DECLARE studentName : STRING
-	DECLARE class : INTEGER
-	
+	DECLARE classID : INTEGER
+
 	//Ask for name and class
-	INPUT("Please enter name and class", studentName, class)
-	
+	INPUT("Please enter name and class ID", studentName, classID)
+
 	//Validate name and class
-	WHILE NOT IsAlphanumeric(studentName) OR NOT IsNumeric(class) DO
-		INPUT("Please enter alphanumeric name and class", studentName, class)
+	WHILE NOT IsValidName(studentName) OR NOT IsNumeric(classID) DO
+		INPUT("Invalid input. Enter name and class ID", studentName, classID)
 	ENDWHILE
-	
-	
-	
-	//Adding new student to Student table && Output error if found
-	DB_DeleteStudent(studentName, class)
-		
+
+	CALL DB_DeleteStudent(studentName, classID)
+
 ENDPROCEDURE
 
 PROCEDURE UpdateStudent()
 	DECLARE studentName : STRING
-	DECLARE class : INTEGER
+	DECLARE currentClassID : INTEGER
+	DECLARE newClassID : INTEGER
 	DECLARE age : INTEGER
-	
-	INPUT("Updating, Please enter name, class and age", studentName, class, age)
-	WHILE NOT IsAlphanumeric(studentName) OR NOT IsNumeric(class) OR NOT IsNumeric(age) DO
-		INPUT("Please enter alphanumeric name and class, age", studentName, class, age)
+ 
+	INPUT("Updating, enter name, current class ID, new class ID and new age",
+	      studentName, currentClassID, newClassID, age)
+	WHILE NOT IsValidName(studentName) OR NOT IsNumeric(currentClassID) OR NOT IsNumeric(newClassID) OR NOT IsNumeric(age) DO
+		INPUT("Invalid input. Enter name, current class ID, new class ID and new age",
+		      studentName, currentClassID, newClassID, age)
 	ENDWHILE
-	DB_UpdateStudent(studentName, class, age)
+
+	IF NOT checkStudentInClassExist(studentName, currentClassID) THEN
+		OUTPUT "Student not found in that class"
+		RETURN
+	ENDIF
+
+	IF NOT checkClassExist(newClassID) OR age < MIN_AGE OR age > MAX_AGE THEN
+		OUTPUT "Invalid new class or age"
+		RETURN
+	ENDIF
+
+	CALL DB_UpdateStudent(studentName, currentClassID, newClassID, age)
 ENDPROCEDURE
 
 PROCEDURE SearchStudent()
 	DECLARE studentName : STRING
-	
+
 	INPUT("Searching, Please enter name", studentName)
-	WHILE NOT IsAlphanumeric(studentName) DO
-		INPUT("Please enter alphanumeric name", studentName)
+	WHILE NOT IsValidName(studentName) DO
+		INPUT("Invalid name, please enter again", studentName)
 	ENDWHILE
-	DB_SearchStudent(studentName)
+	CALL DB_SearchStudent(studentName)
 ENDPROCEDURE
 
 // ==============           DB Operation          =====================
-PROCEDURE DB_AddStudent(studentName : STRING, age : INT)
-	
+PROCEDURE DB_AddStudent(studentName : STRING, classID : INTEGER, age : INTEGER)
+
 	//Connect to database
-	CONSTANT connection = ConnectToDatabase(database_url, credential)
-	
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+
 	//Check connection
 	IF connection == FALSE THEN
-		OUTPUT "Connection erorr: " + connection.error
-		BREAK
+		OUTPUT "Connection error: " + connection.error
+		RETURN
 	ENDIF
-	
-	CONSTANT query = " """
-		INSERT INTO Students (classID, name, age)
-		VALUES (-1, ?, ?); """, studentName, age "
+
+	CONSTANT query = "INSERT INTO Students (classID, studentName, age) VALUES (?, ?, ?)"
 
 	//Execute the query
-	EXECUTE query
-	
+	EXECUTE query WITH (classID, studentName, age)
+	OUTPUT "Student added"
+
 	//Close connection
 	CALL CloseDatabaseConnection()
-	
+
 ENDPROCEDURE
 
+PROCEDURE DB_DeleteStudent(studentName : STRING, classID : INTEGER)
 
+	// Check BEFORE connecting
+	IF NOT checkStudentInClassExist(studentName, classID) THEN
+		OUTPUT "Student Not Found, Please enter again"
+		RETURN    
+	ENDIF
 
-
-PROCEDURE DB_DeleteStudent(studentName : STRING)
-	
 	//Connect to database
-	CONSTANT connection = ConnectToDatabase(database_url, credential)
-	
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+
 	//Check connection
 	IF connection == FALSE THEN
-		OUTPUT "Connection erorr: " + connection.errora
-		BREAK
+		OUTPUT "Connection error: " + connection.error
+		RETURN
 	ENDIF
-	
-	CONSTANT query = " """
-		DELETE FROM Students
-		WHERE studentName =?;
-		""", studentName"
 
-	IF checkStudentExist(studentName) THEN
-		OUTPUT "Student deleted"
-		EXECUTE query
-	ELSE
-		OUTPUT "Student Not Found, Please enter again"
-	ENDIF
-	
+	CONSTANT sid = "(SELECT studentID FROM Student WHERE studentName = ? AND classID = ?)"
+
+	// Remove dependent rows first (Exam -> Enrollment -> Student) so no foreign key is violated
+	BEGIN TRANSACTION
+	EXECUTE "DELETE FROM Exam WHERE enrollID IN (SELECT enrollID FROM Enrollment WHERE studentID = " + sid WITH (studentName, classID)
+	EXECUTE "DELETE FROM Enrollment WHERE studentID = " + sid WITH (studentName, classID)
+	EXECUTE "DELETE FROM Student WHERE studentName = ? AND classID = ?" WITH (studentName, classID)
+	COMMIT
+	OUTPUT "Student deleted"
+
 	//Close connection
 	CALL CloseDatabaseConnection()
-	
+
 ENDPROCEDURE
 
-PROCEDURE DB_UpdateStudent(studentName : STRING, class : INTEGER, age : INTEGER)
-	CONSTANT connection = ConnectToDatabase(database_url, credential)
-	IF connection == FALSE THEN s
-		OUTPUT "Connection erorr: " + connection.error
-		BREAK
+PROCEDURE DB_UpdateStudent(studentName : STRING, currentClassID : INTEGER, newClassID : INTEGER, age : INTEGER)
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+	IF connection == FALSE THEN
+		OUTPUT "Connection error: " + connection.error
+		RETURN
 	ENDIF
-	CONSTANT query = " """
-		UPDATE Students
-		SET studentName = ?, class = ?, age = ?
-		WHERE studentName = ?
-		""", studentName, class, age, studentName "
-	EXECUTE query
+	CONSTANT query = "UPDATE Student SET classID = ?, age = ? WHERE studentName = ? AND classID = ?"
+	EXECUTE query WITH (newClassID, age, studentName, currentClassID)
+	OUTPUT "Student updated"
 	CALL CloseDatabaseConnection()
-	
+
 ENDPROCEDURE
 
 PROCEDURE DB_SearchStudent(studentName : STRING)
-	DECLARE result : ARRAY[1:1] OF DICTIONARY
-	CONSTANT connection = ConnectToDatabase(database_url, credential)
+	DECLARE result : ARRAY OF DICTIONARY
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
 	IF connection == FALSE THEN
-		OUTPUT "Connection erorr: " + connection.error
-		BREAK
+		OUTPUT "Connection error: " + connection.error
+		RETURN
 	ENDIF
-	CONSTANT query = " """
-		SELECT studentName
-		FROM Students
-		WHERE studentName = ?
-		""", studentName"
-	SET result = EXECUTE query
-	FOR EACH (key, value) IN result[0] DO
-		OUTPUT key, value
-	END FOR
+	CONSTANT query = "SELECT * FROM Student WHERE studentName LIKE ?"
+	SET result = EXECUTE query WITH ("%" + studentName + "%")
 	CALL CloseDatabaseConnection()
-	
+	IF COUNT(result) == 0 THEN
+		OUTPUT "No matching student"
+		RETURN
+	ENDIF
+	FOR EACH record IN result
+		FOR EACH (key, value) IN record
+			OUTPUT key, value
+		NEXT
+	NEXT record
+
 ENDPROCEDURE

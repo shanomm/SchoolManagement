@@ -1,170 +1,227 @@
 CONSTANT database_url : ":///sqlite3..."
 CONSTANT credentials = "username, password"
 
-IMPORT * FROM studentSubjectManage.txt
-IMPORT * FROM DB_util.txt
+IMPORT AddStudentToSubject, SearchSubjectFromStudent, UpdateSubjectOfStudent, RemoveSubjectOfStudent FROM enrollManage.txt
+IMPORT IsValidName, checkSubjectExist FROM DB_util.txt
 
 PROCEDURE SubjectManagement()
 
 	DECLARE operation : INTEGER
-	
+
 	WHILE TRUE DO
-	
+
 		CALL ShowAllSubject()
-		
+
 		INPUT("
 		Please enter a number
 		1.Add new subject
 		2.Delete subject
 		3.Update subject
-		5.exit
+		4.Search subject
+		5.Add student to subject
+		6.Search subjects of a student
+		7.Change a student's subject
+		8.Remove subject from a student
+		9.exit
 		", operation)
-		
+
 		CASE OF operation
 			1 : CALL AddSubject()
 			2 : CALL DeleteSubject()
 			3 : CALL UpdateSubject()
 			4 : CALL SearchSubject()
-			
-			// This module is imported
+
+			// These procedures are imported from studentSubjectManage.txt
 			5 : CALL AddStudentToSubject()
 			6 : CALL SearchSubjectFromStudent()
 			7 : CALL UpdateSubjectOfStudent()
 			8 : CALL RemoveSubjectOfStudent()
-			9 : BREAK
-			
+			9 : RETURN
+			OTHERWISE : OUTPUT "Invalid option, please enter 1-9"
+		ENDCASE
+
 	ENDWHILE
-	
+
 ENDPROCEDURE
 
 // =====================      Operation Selection     ======================
 
+PROCEDURE ShowAllSubject()
+	DECLARE result : ARRAY OF DICTIONARY
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+	IF connection == FALSE THEN
+		OUTPUT "Connection error: " + connection.error
+		RETURN
+	ENDIF
+	result = EXECUTE "SELECT * FROM Subject"
+	CALL CloseDatabaseConnection()
+	IF COUNT(result) == 0 THEN
+		OUTPUT "No subjects found"
+		RETURN
+	ENDIF
+	FOR EACH record IN result
+		FOR EACH (key, value) IN record
+			OUTPUT key, value
+		NEXT
+	NEXT record
+ENDPROCEDURE
+
 PROCEDURE AddSubject()
 	DECLARE subjectName : STRING
-	
+
 	//Ask for subject name
-	INPUT("Please enter name and age", subjectName, age)
-	
-	//Validate name and age
-	WHILE NOT IsAlphanumeric(subjectName) DO
-		INPUT("Please enter alphanumeric name", subjectName)
+	INPUT("Please enter subject name", subjectName)
+
+	//Validate name
+	WHILE NOT IsValidName(subjectName) DO
+		INPUT("Invalid name, please enter again", subjectName)
 	ENDWHILE
-	
-	CONSTANT query = " """
-	INSERT INTO Subjects(subjectName)
-	VALUES (?) """, subjectName "
-	
-	//Adding new subject to subject table && Output error if found
-	SET connection = ConnectToDatabase(username, credentials)
-	IF connection == FALSE THEN
-		OUTPUT "connection error:" + connection.error
-		BREAK
+
+	IF checkSubjectExist(subjectName) THEN
+		OUTPUT "Subject already exists"
+		RETURN
 	ENDIF
-	
-	EXECUTE query
-	OUTPUT " Subject Created "
-		
+
+	CALL DB_AddSubject(subjectName)
+
 ENDPROCEDURE
 
 PROCEDURE DeleteSubject()
 	DECLARE subjectName : STRING
-	
+
 	//Ask for subject name
-	INPUT("Please enter name and class", subjectName)
-	
+	INPUT("Please enter subject name to delete", subjectName)
+
 	//Validate subject name
-	WHILE NOT IsAlphanumeric(subjectName) DO
-		INPUT("Please enter alphanumeric name", subjectName)
+	WHILE NOT IsValidName(subjectName) DO
+		INPUT("Invalid name, please enter again", subjectName)
 	ENDWHILE
-	
-	
-	
-	//Adding new subject to subject table && Output error if found
-	DB_DeleteSubject(subjectName, class)
-		
+
+	CALL DB_DeleteSubject(subjectName)
+
 ENDPROCEDURE
 
 PROCEDURE UpdateSubject()
 	DECLARE subjectName : STRING
 	DECLARE newName : STRING
-	
+
 	INPUT("Updating, Please enter current name and new name", subjectName, newName)
-	WHILE NOT IsAlphanumeric(subjectName) OR NOT IsAlphanumeric(newName) DO
-		INPUT("Please enter alphanumeric name", subjectName, newName)
+	WHILE NOT IsValidName(subjectName) OR NOT IsValidName(newName) DO
+		INPUT("Invalid name, please enter current name and new name", subjectName, newName)
 	ENDWHILE
-	
-	DB_UpdateSubject(subjectName, newName)
+
+	CALL DB_UpdateSubject(subjectName, newName)
+ENDPROCEDURE
+
+PROCEDURE SearchSubject()
+	DECLARE subjectName : STRING
+
+	INPUT("Searching, please enter subject name", subjectName)
+	WHILE NOT IsValidName(subjectName) DO
+		INPUT("Invalid name, please enter again", subjectName)
+	ENDWHILE
+
+	CALL DB_SearchSubject(subjectName)
 ENDPROCEDURE
 
 // ==============           DB Operation          =====================
 PROCEDURE DB_AddSubject(subjectName : STRING)
-	
-	CONSTANT connection = ConnectToDatabase(database_url, credential)
-	
+
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+
 	IF connection == FALSE THEN
-		OUTPUT "Connection erorr: " + connection.error
-		BREAK
+		OUTPUT "Connection error: " + connection.error
+		RETURN
 	ENDIF
-	
-	CONSTANT query = " """
-		INSERT INTO Subjects (subjectName)
-		VALUES (?); """, subjectName"
 
+	EXECUTE "INSERT INTO Subject (subjectName) VALUES (?)" WITH (subjectName)
+	OUTPUT "Subject created"
 
-	EXECUTE query
-	
 	CALL CloseDatabaseConnection()
-	
+
 ENDPROCEDURE
 
-
-
-
 PROCEDURE DB_DeleteSubject(subjectName : STRING)
-	
+	DECLARE result : ARRAY OF DICTIONARY
+
+	// Check BEFORE connecting
+	IF NOT checkSubjectExist(subjectName) THEN
+		OUTPUT "Subject Not Found, Please enter again"
+		RETURN
+	ENDIF
+
 	//Connect to database
-	CONSTANT connection = ConnectToDatabase(database_url, credential)
-	
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+
 	//Check connection
 	IF connection == FALSE THEN
-		OUTPUT "Connection erorr: " + connection.error
-		BREAK
+		OUTPUT "Connection error: " + connection.error
+		RETURN
 	ENDIF
-	
-	CONSTANT query = " """
-		DELETE FROM Subjects 
-		WHERE subjectName = ?; """, subjectName"
 
-	IF checkSubjectExist(subjectName) THEN
-		OUTPUT "Subject deleted"
-		EXECUTE query
+	// Block deletion while students are still enrolled
+	result = EXECUTE "SELECT COUNT(*) AS total FROM Enrollment
+	                  WHERE subjectID = (SELECT subjectID FROM Subject WHERE subjectName = ?)"
+	                 WITH (subjectName)
+
+	IF result[0]["total"] > 0 THEN
+		OUTPUT "Cannot delete: " + result[0]["total"] + " enrolment(s) still use this subject"
 	ELSE
-		OUTPUT "Subject Not Found, Please enter again"
+		EXECUTE "DELETE FROM Subject WHERE subjectName = ?" WITH (subjectName)
+		OUTPUT "Subject deleted"
 	ENDIF
-	
+
 	//Close connection
 	CALL CloseDatabaseConnection()
-	
+
 ENDPROCEDURE
 
 PROCEDURE DB_UpdateSubject(subjectName : STRING, newName : STRING)
 
-	CONSTANT connection = ConnectToDatabase(database_url, credential)
-	IF connection == FALSE THEN
-		OUTPUT "Connection erorr: " + connection.error
-		BREAK
+	IF NOT checkSubjectExist(subjectName) THEN
+		OUTPUT "Subject Not Found"
+		RETURN
 	ENDIF
-	
-	CONSTANT query = " """
-		UPDATE Subjects
-		SET subjectName = ?
-		WHERE subjectName = ?
-		""", newName, subjectName"
-		
-	EXECUTE query
-	
-	OUTPUT "successfully updated name to " + newName
+
+	IF checkSubjectExist(newName) THEN
+		OUTPUT "A subject with that name already exists"
+		RETURN
+	ENDIF
+
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+	IF connection == FALSE THEN
+		OUTPUT "Connection error: " + connection.error
+		RETURN
+	ENDIF
+
+	EXECUTE "UPDATE Subject SET subjectName = ? WHERE subjectName = ?" WITH (newName, subjectName)
+
+	OUTPUT "Successfully updated name to " + newName
 	CALL CloseDatabaseConnection()
-	
+
 ENDPROCEDURE
 
+PROCEDURE DB_SearchSubject(subjectName : STRING)
+	DECLARE result : ARRAY OF DICTIONARY
+
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+	IF connection == FALSE THEN
+		OUTPUT "Connection error: " + connection.error
+		RETURN
+	ENDIF
+
+	SET result = EXECUTE "SELECT * FROM Subject WHERE subjectName LIKE ?" WITH ("%" + subjectName + "%")
+	CALL CloseDatabaseConnection()
+
+	IF COUNT(result) == 0 THEN
+		OUTPUT "No matching subject"
+		RETURN
+	ENDIF
+
+	FOR EACH record IN result
+		FOR EACH (key, value) IN record
+			OUTPUT key, value
+		NEXT
+	NEXT record
+
+ENDPROCEDURE

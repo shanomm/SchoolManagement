@@ -1,0 +1,214 @@
+CONSTANT database_url : ":///sqlite3..."
+CONSTANT credentials = "username, password"
+
+IMPORT IsValidName, checkStudentExist, checkSubjectExist, checkEnrollmentExist, checkExamExist FROM DB_util.txt
+
+CONSTANT MIN_SCORE = 0
+CONSTANT MAX_SCORE = 100
+
+PROCEDURE ExamManagement()
+
+	DECLARE operation : INTEGER
+
+	WHILE TRUE DO
+
+		CALL ShowAllExam()
+
+		INPUT("
+		Please enter a number
+		1.Create exam
+		2.Update exam
+		3.Delete exam
+		4.exit
+		", operation)
+
+		CASE OF operation
+			1 : CALL CreateExam()
+			2 : CALL UpdateExam()
+			3 : CALL DeleteExam()
+			4 : RETURN
+			OTHERWISE : OUTPUT "Invalid option, please enter 1-4"
+		ENDCASE
+
+	ENDWHILE
+
+ENDPROCEDURE
+
+// =====================      Operation Selection     ======================
+
+PROCEDURE ShowAllExam()
+	DECLARE result : ARRAY OF DICTIONARY
+
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+	IF connection == FALSE THEN
+		OUTPUT "Connection error: " + connection.error
+		RETURN
+	ENDIF
+
+	result = EXECUTE "SELECT studentName, subjectName, term, score FROM Exam
+	                  JOIN Enrollment ON Enrollment.enrollID = Exam.enrollID
+	                  JOIN Student ON Student.studentID = Enrollment.studentID
+	                  JOIN Subject ON Subject.subjectID = Enrollment.subjectID
+	                  ORDER BY studentName, subjectName, term"
+	CALL CloseDatabaseConnection()
+
+	IF COUNT(result) == 0 THEN
+		OUTPUT "No exams found"
+		RETURN
+	ENDIF
+
+	FOR EACH record IN result
+		FOR EACH (key, value) IN record
+			OUTPUT key, value
+		NEXT
+	NEXT record
+ENDPROCEDURE
+
+PROCEDURE CreateExam()
+	DECLARE studentName : STRING
+	DECLARE subjectName : STRING
+	DECLARE term : INTEGER
+	DECLARE score : INTEGER
+
+	//Ask for exam details
+	INPUT("Please enter student name, subject, term and score", studentName, subjectName, term, score)
+
+	//Validate input
+	WHILE NOT IsValidName(studentName) OR NOT IsValidName(subjectName) OR NOT IsNumeric(term) OR NOT IsNumeric(score) DO
+		INPUT("Invalid input. Enter student name, subject, term and score", studentName, subjectName, term, score)
+	ENDWHILE
+
+	IF score < MIN_SCORE OR score > MAX_SCORE THEN
+		OUTPUT "Score must be between " + MIN_SCORE + " and " + MAX_SCORE
+		RETURN
+	ENDIF
+
+	IF NOT checkStudentExist(studentName) OR NOT checkSubjectExist(subjectName) THEN
+		OUTPUT "Student or subject does not exist"
+		RETURN
+	ENDIF
+
+	//An exam must belong to an existing enrolment
+	IF NOT checkEnrollmentExist(studentName, subjectName) THEN
+		OUTPUT "Student is not enrolled in " + subjectName
+		RETURN
+	ENDIF
+
+	IF checkExamExist(studentName, subjectName, term) THEN
+		OUTPUT "Exam already exists for this student, subject and term"
+		RETURN
+	ENDIF
+
+	CALL DB_CreateExam(studentName, subjectName, term, score)
+
+ENDPROCEDURE
+
+PROCEDURE UpdateExam()
+	DECLARE studentName : STRING
+	DECLARE subjectName : STRING
+	DECLARE term : INTEGER
+	DECLARE newScore : INTEGER
+
+	INPUT("Updating, please enter student name, subject, term and new score", studentName, subjectName, term, newScore)
+
+	WHILE NOT IsValidName(studentName) OR NOT IsValidName(subjectName) OR NOT IsValidName(term) OR NOT IsNumeric(newScore) DO
+		INPUT("Invalid input. Enter student name, subject, term and new score", studentName, subjectName, term, newScore)
+	ENDWHILE
+
+	IF newScore < MIN_SCORE OR newScore > MAX_SCORE THEN
+		OUTPUT "Score must be between " + MIN_SCORE + " and " + MAX_SCORE
+		RETURN
+	ENDIF
+
+	IF NOT checkExamExist(studentName, subjectName, term) THEN
+		OUTPUT "Exam Not Found"
+		RETURN
+	ENDIF
+
+	CALL DB_UpdateExam(studentName, subjectName, term, newScore)
+
+ENDPROCEDURE
+
+PROCEDURE DeleteExam()
+	DECLARE studentName : STRING
+	DECLARE subjectName : STRING
+	DECLARE term : INTEGER
+
+	INPUT("Please enter student name, subject and term of the exam to delete", studentName, subjectName, term)
+
+	WHILE NOT IsValidName(studentName) OR NOT IsValidName(subjectName) OR NOT IsValidName(term) DO
+		INPUT("Invalid input. Enter student name, subject and term", studentName, subjectName, term)
+	ENDWHILE
+
+	CALL DB_DeleteExam(studentName, subjectName, term)
+
+ENDPROCEDURE
+
+// ==============           DB Operation          =====================
+PROCEDURE DB_CreateExam(studentName : STRING, subjectName : STRING, term : INTEGER, score : INTEGER)
+
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+	IF connection == FALSE THEN
+		OUTPUT "Connection error: " + connection.error
+		RETURN
+	ENDIF
+
+	//Look up the enrolment that links this student and subject
+	EXECUTE "INSERT INTO Exam (enrollID, term, score) VALUES (
+	           (SELECT enrollID FROM Enrollment
+	            WHERE studentID = (SELECT studentID FROM Student WHERE studentName = ?)
+	              AND subjectID = (SELECT subjectID FROM Subject WHERE subjectName = ?)),
+	           ?, ?)"
+	        WITH (studentName, subjectName, term, score)
+
+	OUTPUT "Exam created"
+	CALL CloseDatabaseConnection()
+
+ENDPROCEDURE
+
+PROCEDURE DB_UpdateExam(studentName : STRING, subjectName : STRING, term : STRING, newScore : INTEGER)
+
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+	IF connection == FALSE THEN
+		OUTPUT "Connection error: " + connection.error
+		RETURN
+	ENDIF
+
+	EXECUTE "UPDATE Exam SET score = ?
+	         WHERE term = ?
+	           AND enrollID = (SELECT enrollID FROM Enrollment
+	                           WHERE studentID = (SELECT studentID FROM Student WHERE studentName = ?)
+	                             AND subjectID = (SELECT subjectID FROM Subject WHERE subjectName = ?))"
+	        WITH (newScore, term, studentName, subjectName)
+
+	OUTPUT "Successfully updated score to " + newScore
+	CALL CloseDatabaseConnection()
+
+ENDPROCEDURE
+
+PROCEDURE DB_DeleteExam(studentName : STRING, subjectName : STRING, term : STRING)
+
+	// Check BEFORE connecting
+	IF NOT checkExamExist(studentName, subjectName, term) THEN
+		OUTPUT "Exam Not Found, Please enter again"
+		RETURN
+	ENDIF
+
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+	IF connection == FALSE THEN
+		OUTPUT "Connection error: " + connection.error
+		RETURN
+	ENDIF
+
+	// Exam is the child table, so it can be deleted without touching Enrollment
+	EXECUTE "DELETE FROM Exam
+	         WHERE term = ?
+	           AND enrollID = (SELECT enrollID FROM Enrollment
+	                           WHERE studentID = (SELECT studentID FROM Student WHERE studentName = ?)
+	                             AND subjectID = (SELECT subjectID FROM Subject WHERE subjectName = ?))"
+	        WITH (term, studentName, subjectName)
+
+	OUTPUT "Exam deleted"
+	CALL CloseDatabaseConnection()
+
+ENDPROCEDURE

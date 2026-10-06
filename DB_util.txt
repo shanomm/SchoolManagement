@@ -1,39 +1,69 @@
 CONSTANT database_url : ":///sqlite3..."
 CONSTANT credentials = "username, password"
 
-FUNCTION checkSubjectExist(subject name : STRING) RETURNS BOOLEAN
-	DECLARE result : BOOLEAN
-	
-	CONSTANT query = " """
-	SELECT EXISTS(SELECT 1 FROM Subjects WHERE subjectName = ?);
-	""", subjectName"
-	
-	result = EXECUTE query
-	
-	RETURN result
-	
+/* ======================================  VALIDATION HELPERS  ====================================== */
+
+// Letters, digits and spaces only, not empty, not only spaces
+FUNCTION IsValidName(value : STRING) RETURNS BOOLEAN
+	IF LENGTH(TRIM(value)) == 0 THEN
+		RETURN FALSE
+	ENDIF
+	FOR EACH character IN value
+		IF NOT IsLetter(character) AND NOT IsDigit(character) AND character <> " " THEN
+			RETURN FALSE
+		ENDIF
+	NEXT character
+	RETURN TRUE
+ENDFUNCTION
+
+/* ======================================  EXISTENCE CHECKS  ====================================== */
+
+// Generic helper: runs a query with parameters and reports whether any row came back
+FUNCTION RecordExists(query : STRING, params : ARRAY) RETURNS BOOLEAN
+	DECLARE result : ARRAY OF DICTIONARY
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+	IF connection == FALSE THEN
+		OUTPUT "Connection error: " + connection.error
+		RETURN FALSE
+	ENDIF
+	result = EXECUTE query WITH params
+	CALL CloseDatabaseConnection()
+	RETURN COUNT(result) > 0
+ENDFUNCTION
+
+FUNCTION checkSubjectExist(subjectName : STRING) RETURNS BOOLEAN
+	RETURN RecordExists("SELECT 1 FROM Subject WHERE subjectName = ?", [subjectName])
 ENDFUNCTION
 
 FUNCTION checkStudentExist(studentName : STRING) RETURNS BOOLEAN
-	DECLARE result : BOOLEAN
-
-	CONSTANT query = " """
-	SELECT EXISTS(SELECT 1 FROM Students WHERE studentName = ?);
-	""", studentName"
-	
-	result = EXECUTE query
-	
-	RETURN result
+	RETURN RecordExists("SELECT 1 FROM Student WHERE studentName = ?", [studentName])
 ENDFUNCTION
 
-FUNCTION checkClassExist(class: INTEGER) RETURNS BOOLEAN
-	DECLARE result : BOOLEAN
+FUNCTION checkStudentInClassExist(studentName : STRING, classID : INTEGER) RETURNS BOOLEAN
+	RETURN RecordExists("SELECT 1 FROM Student WHERE studentName = ? AND classID = ?", [studentName, classID])
+ENDFUNCTION
 
-	CONSTANT query = " """
-	SELECT EXISTS(SELECT 1 FROM Classes WHERE class = ?);
-	""", class"
-	
-	result = EXECUTE query
-	
-	RETURN result
+FUNCTION checkClassExist(classID : INTEGER) RETURNS BOOLEAN
+	RETURN RecordExists("SELECT 1 FROM Class WHERE classID = ?", [classID])
+ENDFUNCTION
+
+FUNCTION checkClassNameExist(className : STRING) RETURNS BOOLEAN
+	RETURN RecordExists("SELECT 1 FROM Class WHERE className = ?", [className])
+ENDFUNCTION
+
+FUNCTION checkEnrollmentExist(studentName : STRING, subjectName : STRING) RETURNS BOOLEAN
+	RETURN RecordExists("
+		SELECT 1 FROM Enrollment
+		JOIN Student ON Student.studentID = Enrollment.studentID
+		JOIN Subject ON Subject.subjectID = Enrollment.subjectID
+		WHERE studentName = ? AND subjectName = ?", [studentName, subjectName])
+ENDFUNCTION
+
+FUNCTION checkExamExist(studentName : STRING, subjectName : STRING, term : INTEGER) RETURNS BOOLEAN
+	RETURN RecordExists("
+		SELECT 1 FROM Exam
+		JOIN Enrollment ON Enrollment.enrollID = Exam.enrollID
+		JOIN Student ON Student.studentID = Enrollment.studentID
+		JOIN Subject ON Subject.subjectID = Enrollment.subjectID
+		WHERE studentName = ? AND subjectName = ? AND term = ?", [studentName, subjectName, term])
 ENDFUNCTION
