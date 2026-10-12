@@ -1,0 +1,515 @@
+CONSTANT database_url : ":///sqlite3..."
+CONSTANT credentials = "username, password"
+
+IMPORT IsValidName FROM DB_util.txt
+
+CONSTANT PASS_MARK = 50      // a result passes when its AVERAGE is >= PASS_MARK
+CONSTANT MAX_SCORE = 100     // must match examManage.txt
+CONSTANT PAGE_SIZE = 10      // rows per page in ranked reports
+CONSTANT MAX_LIST = 20       // most student matches shown in a pick-list
+
+/*
+	Navigation codes returned by every screen that can leave the report module:
+		"BACK" = return to the previous screen
+		"MAIN" = return all the way to the main menu
+	Pick-list functions return the chosen record (DICTIONARY) or NULL when the user chooses 0 (Back).
+
+	Only exams that exist are counted. A subject with no exam rows is not listed, and a missing
+	term is never treated as 0, so subjects may have different numbers of terms.
+*/
+
+/* ======================================  REPORT MENU  ====================================== */
+
+PROCEDURE Report()
+
+	DECLARE operation : INTEGER
+
+	WHILE TRUE DO
+
+		OUTPUT "========================  REPORTS  ========================"
+		OUTPUT "  1. Student report   (one student, all subjects)"
+		OUTPUT "  2. Subject report   (one subject, all students)"
+		OUTPUT "  3. Class report     (one class, optionally one subject)"
+		OUTPUT "  0. Back to main menu"
+		OUTPUT "-----------------------------------------------------------"
+		INPUT("Choose [0-3]: ", operation)
+
+		CASE OF operation
+			1 : IF StudentReport() == "MAIN" THEN RETURN
+			2 : IF SubjectReport() == "MAIN" THEN RETURN
+			3 : IF ClassReport() == "MAIN" THEN RETURN
+			0 : RETURN
+			OTHERWISE : OUTPUT "Invalid option, please enter 0-3"
+		ENDCASE
+
+	ENDWHILE
+
+ENDPROCEDURE
+
+// =====================      Operation Selection     ======================
+
+FUNCTION StudentReport() RETURNS STRING
+	DECLARE student : DICTIONARY
+
+	SET student = SelectStudent()
+	IF student == NULL THEN
+		RETURN "BACK"
+	ENDIF
+
+	RETURN ShowStudentSummary(student)
+ENDFUNCTION
+
+FUNCTION SubjectReport() RETURNS STRING
+	DECLARE subject : DICTIONARY
+
+	SET subject = PickFromList("REPORTS > Subject report > Select subject", DB_GetSubjects(), "subjectName")
+	IF subject == NULL THEN
+		RETURN "BACK"
+	ENDIF
+
+	// classID = NULL means every class
+	RETURN ShowRankedReport("REPORTS > Subject report > " + subject["subjectName"], subject["subjectID"], NULL)
+ENDFUNCTION
+
+FUNCTION ClassReport() RETURNS STRING
+	DECLARE class : DICTIONARY
+	DECLARE subject : DICTIONARY
+	DECLARE subjects : ARRAY OF DICTIONARY
+	DECLARE classBreadcrumb : STRING
+	DECLARE subjectID : INTEGER
+	DECLARE title : STRING
+
+	SET class = PickFromList("REPORTS > Class report > Select class", DB_GetClasses(), "className")
+	IF class == NULL THEN
+		RETURN "BACK"
+	ENDIF
+
+	SET classBreadcrumb = "REPORTS > Class report > " + class["className"]
+
+	// "All subjects" is added as the first option with subjectID 0
+	SET subjects = [ {subjectID : 0, subjectName : "All subjects"} ] + DB_GetSubjects()
+	SET subject = PickFromList(classBreadcrumb + " > Select subject", subjects, "subjectName")
+	IF subject == NULL THEN
+		RETURN "BACK"
+	ENDIF
+
+	IF subject["subjectID"] == 0 THEN
+		SET subjectID = NULL
+		SET title = classBreadcrumb + " > All subjects"
+	ELSE
+		SET subjectID = subject["subjectID"]
+		SET title = classBreadcrumb + " > " + subject["subjectName"]
+	ENDIF
+
+	RETURN ShowRankedReport(title, subjectID, class["classID"])
+ENDFUNCTION
+
+// =====================      Selection Screens     ======================
+
+// Generic numbered pick-list. Returns the chosen record, or NULL if the user chooses 0 (Back).
+FUNCTION PickFromList(breadcrumb : STRING, items : ARRAY OF DICTIONARY, labelKey : STRING) RETURNS DICTIONARY
+	DECLARE choice : INTEGER
+	DECLARE index : INTEGER
+
+	IF COUNT(items) == 0 THEN
+		OUTPUT breadcrumb
+		OUTPUT "Nothing to select yet."
+		RETURN NULL
+	ENDIF
+
+	OUTPUT breadcrumb
+	OUTPUT "-----------------------------------------------------------"
+	SET index = 1
+	FOR EACH item IN items
+		OUTPUT "  " + index + ". " + item[labelKey]
+		SET index = index + 1
+	NEXT item
+	OUTPUT "  0. Back"
+	OUTPUT "-----------------------------------------------------------"
+
+	INPUT("Choose [0-" + COUNT(items) + "]: ", choice)
+	WHILE NOT IsNumeric(choice) OR choice < 0 OR choice > COUNT(items) DO
+		INPUT("Invalid choice, enter 0-" + COUNT(items) + ": ", choice)
+	ENDWHILE
+
+	IF choice == 0 THEN
+		RETURN NULL
+	ENDIF
+
+	RETURN items[choice]
+ENDFUNCTION
+
+// Students are searched by name first, so a long student list never floods the screen.
+FUNCTION SelectStudent() RETURNS DICTIONARY
+	DECLARE search : STRING
+	DECLARE students : ARRAY OF DICTIONARY
+
+	WHILE TRUE DO
+		INPUT("REPORTS > Student report > Search student
+		Enter part of the name (blank = list all, 0 = back): ", search)
+
+		IF search == "0" THEN
+			RETURN NULL
+		ENDIF
+
+		IF search <> "" AND NOT IsValidName(search) THEN
+			OUTPUT "Names may contain only letters, numbers and spaces"
+		ELSE
+			SET students = DB_GetStudents(search)
+
+			IF COUNT(students) == 0 THEN
+				OUTPUT "No matching student found"
+			ELSEIF COUNT(students) > MAX_LIST THEN
+				OUTPUT COUNT(students) + " matches, please type more of the name"
+			ELSE
+				// A NULL result here means Back, which returns to the search prompt
+				RETURN PickFromList("REPORTS > Student report > Select student", students, "label")
+			ENDIF
+		ENDIF
+	ENDWHILE
+ENDFUNCTION
+
+// =====================      Result Screens     ======================
+
+// Footer used by screens that only offer Back / Main menu
+FUNCTION WaitForNavigation() RETURNS STRING
+	DECLARE choice : STRING
+
+	OUTPUT "[B]ack  [0] Main menu"
+	INPUT("Choose: ", choice)
+	SET choice = UPPER(choice)
+	WHILE choice <> "B" AND choice <> "0" DO
+		INPUT("Invalid choice, enter B or 0: ", choice)
+		SET choice = UPPER(choice)
+	ENDWHILE
+
+	IF choice == "0" THEN
+		RETURN "MAIN"
+	ENDIF
+	RETURN "BACK"
+ENDFUNCTION
+
+// Student report: one row per subject, number of exams may differ between subjects
+FUNCTION ShowStudentSummary(student : DICTIONARY) RETURNS STRING
+	DECLARE rows : ARRAY OF DICTIONARY
+	DECLARE choice : STRING
+	DECLARE index : INTEGER
+	DECLARE breadcrumb : STRING
+
+	SET breadcrumb = "REPORTS > Student report > " + student["label"]
+	SET rows = DB_GetStudentSummary(student["studentID"])
+
+	WHILE TRUE DO
+		OUTPUT breadcrumb
+		OUTPUT "Pass mark: " + PASS_MARK + " (average)"
+		OUTPUT "-----------------------------------------------------------"
+
+		IF COUNT(rows) == 0 THEN
+			OUTPUT "No exam results yet for this student."
+			OUTPUT "-----------------------------------------------------------"
+			RETURN WaitForNavigation()
+		ENDIF
+
+		OUTPUT " #  Subject            Exams   Total   Max   Average   Status"
+		SET index = 1
+		FOR EACH row IN rows
+			OUTPUT PAD(index, 2) + "  " + PAD(row["subjectName"], 18) + PAD(row["exams"], 5)
+			       + PAD(row["total"], 8) + PAD(row["maxScore"], 6)
+			       + PAD(FORMAT(row["average"], 1), 10) + GetStatus(row["average"])
+			SET index = index + 1
+		NEXT row
+
+		OUTPUT "-----------------------------------------------------------"
+		OUTPUT "Enter a row number to see its exams"
+		OUTPUT "[B]ack  [0] Main menu"
+		INPUT("Choose: ", choice)
+		SET choice = UPPER(choice)
+
+		IF choice == "B" THEN
+			RETURN "BACK"
+		ELSEIF choice == "0" THEN
+			RETURN "MAIN"
+		ELSEIF IsNumeric(choice) AND choice >= 1 AND choice <= COUNT(rows) THEN
+			IF ShowExamDetail(breadcrumb, rows[choice]) == "MAIN" THEN
+				RETURN "MAIN"
+			ENDIF
+		ELSE
+			OUTPUT "Invalid choice, enter a row number, B or 0"
+		ENDIF
+	ENDWHILE
+ENDFUNCTION
+
+// Detail screen: only the terms this subject actually has are listed
+FUNCTION ShowExamDetail(breadcrumb : STRING, row : DICTIONARY) RETURNS STRING
+	DECLARE exams : ARRAY OF DICTIONARY
+
+	SET exams = DB_GetExamsByEnrollment(row["enrollID"])
+
+	OUTPUT breadcrumb + " > " + row["subjectName"]
+	OUTPUT "-----------------------------------------------------------"
+	OUTPUT " Term        Score"
+	FOR EACH exam IN exams
+		OUTPUT " " + PAD(exam["term"], 12) + exam["score"]
+	NEXT exam
+	OUTPUT "-----------------------------------------------------------"
+	OUTPUT " Total " + row["total"] + " / " + row["maxScore"]
+	       + "     Average " + FORMAT(row["average"], 1)
+	       + "     " + GetStatus(row["average"])
+
+	RETURN WaitForNavigation()
+ENDFUNCTION
+
+/*
+	Shared by the Subject report and the Class report.
+	subjectID = NULL -> all subjects      classID = NULL -> all classes
+	Rows are always fetched already sorted and filtered, then split into pages in memory.
+*/
+FUNCTION ShowRankedReport(breadcrumb : STRING, subjectID : INTEGER, classID : INTEGER) RETURNS STRING
+	DECLARE rows : ARRAY OF DICTIONARY
+	DECLARE sortKey : INTEGER
+	DECLARE newSort : INTEGER
+	DECLARE failedOnly : BOOLEAN
+	DECLARE page : INTEGER
+	DECLARE totalPages : INTEGER
+	DECLARE firstIndex : INTEGER
+	DECLARE lastIndex : INTEGER
+	DECLARE showSubject : BOOLEAN
+	DECLARE choice : STRING
+	DECLARE settings : STRING
+
+	SET sortKey = 3            // default: highest average
+	SET failedOnly = FALSE
+	SET page = 1
+	SET showSubject = (subjectID == NULL)     // "All subjects" needs a Subject column
+
+	WHILE TRUE DO
+
+		SET rows = DB_GetRankedReport(subjectID, classID, sortKey, failedOnly)
+		SET totalPages = MAX(1, CEILING(COUNT(rows) / PAGE_SIZE))
+		IF page > totalPages THEN
+			SET page = 1
+		ENDIF
+		SET firstIndex = (page - 1) * PAGE_SIZE + 1
+		SET lastIndex = MIN(page * PAGE_SIZE, COUNT(rows))
+
+		// Header always shows the active pass mark, sort and filter
+		SET settings = "Pass mark: " + PASS_MARK + "      Sort: " + SortLabel(sortKey)
+		IF failedOnly THEN
+			SET settings = settings + "      Filter: Failed only"
+		ENDIF
+
+		OUTPUT breadcrumb
+		IF COUNT(rows) == 0 THEN
+			OUTPUT settings
+		ELSE
+			OUTPUT settings + "      Showing " + firstIndex + "-" + lastIndex + " of " + COUNT(rows)
+		ENDIF
+		OUTPUT "-----------------------------------------------------------"
+
+		IF COUNT(rows) == 0 THEN
+			IF failedOnly THEN
+				OUTPUT "No failed students. Press F to show all."
+			ELSE
+				OUTPUT "No exam results to show yet."
+			ENDIF
+		ELSE
+			IF showSubject THEN
+				OUTPUT " #  Student         Subject          Exams   Total   Max   Average   Status"
+			ELSE
+				OUTPUT " #  Student         Exams   Total   Max   Average   Status"
+			ENDIF
+
+			FOR index = firstIndex TO lastIndex
+				DECLARE row : DICTIONARY
+				SET row = rows[index]
+				IF showSubject THEN
+					OUTPUT PAD(index, 2) + "  " + PAD(row["studentName"], 15) + PAD(row["subjectName"], 17)
+					       + PAD(row["exams"], 7) + PAD(row["total"], 8) + PAD(row["maxScore"], 6)
+					       + PAD(FORMAT(row["average"], 1), 10) + GetStatus(row["average"])
+				ELSE
+					OUTPUT PAD(index, 2) + "  " + PAD(row["studentName"], 15)
+					       + PAD(row["exams"], 7) + PAD(row["total"], 8) + PAD(row["maxScore"], 6)
+					       + PAD(FORMAT(row["average"], 1), 10) + GetStatus(row["average"])
+				ENDIF
+			NEXT index
+		ENDIF
+
+		OUTPUT "-----------------------------------------------------------"
+		IF failedOnly THEN
+			OUTPUT "[S]ort  [F] Show all  [N]ext page  [B]ack  [0] Main menu"
+		ELSE
+			OUTPUT "[S]ort  [F]ailed only  [N]ext page  [B]ack  [0] Main menu"
+		ENDIF
+		INPUT("Choose: ", choice)
+		SET choice = UPPER(choice)
+
+		CASE OF choice
+			"S" : SET newSort = SortMenu()
+			      IF newSort <> 0 THEN
+			      	SET sortKey = newSort
+			      	SET page = 1
+			      ENDIF
+			"F" : SET failedOnly = NOT failedOnly       // toggle filter
+			      SET page = 1
+			"N" : IF page < totalPages THEN
+			      	SET page = page + 1
+			      ELSE
+			      	SET page = 1                         // wrap back to the first page
+			      ENDIF
+			"B" : RETURN "BACK"
+			"0" : RETURN "MAIN"
+			OTHERWISE : OUTPUT "Invalid choice, enter S, F, N, B or 0"
+		ENDCASE
+
+	ENDWHILE
+ENDFUNCTION
+
+// Returns 1-5 for a new sort order, or 0 if the user cancels
+FUNCTION SortMenu() RETURNS INTEGER
+	DECLARE choice : INTEGER
+
+	OUTPUT "Sort by:"
+	OUTPUT "  1. Highest total score"
+	OUTPUT "  2. Lowest total score"
+	OUTPUT "  3. Highest average"
+	OUTPUT "  4. Lowest average"
+	OUTPUT "  5. Failed first"
+	OUTPUT "  0. Cancel"
+	INPUT("Choose [0-5]: ", choice)
+	WHILE NOT IsNumeric(choice) OR choice < 0 OR choice > 5 DO
+		INPUT("Invalid choice, enter 0-5: ", choice)
+	ENDWHILE
+
+	RETURN choice
+ENDFUNCTION
+
+// =====================      Display Helpers     ======================
+
+FUNCTION GetStatus(average : REAL) RETURNS STRING
+	IF average < PASS_MARK THEN
+		RETURN "FAIL"
+	ENDIF
+	RETURN "PASS"
+ENDFUNCTION
+
+FUNCTION SortLabel(sortKey : INTEGER) RETURNS STRING
+	CASE OF sortKey
+		1 : RETURN "Highest total"
+		2 : RETURN "Lowest total"
+		3 : RETURN "Highest average"
+		4 : RETURN "Lowest average"
+		5 : RETURN "Failed first"
+	ENDCASE
+ENDFUNCTION
+
+// ==============           DB Operation          =====================
+
+// Runs one query and returns all rows. On a connection error it reports it and returns an empty array.
+FUNCTION DB_Fetch(query : STRING, params : ARRAY) RETURNS ARRAY OF DICTIONARY
+	DECLARE result : ARRAY OF DICTIONARY
+
+	CONSTANT connection = ConnectToDatabase(database_url, credentials)
+	IF connection == FALSE THEN
+		OUTPUT "Connection error: " + connection.error
+		RETURN []
+	ENDIF
+
+	SET result = EXECUTE query WITH params
+	CALL CloseDatabaseConnection()
+
+	RETURN result
+ENDFUNCTION
+
+FUNCTION DB_GetStudents(search : STRING) RETURNS ARRAY OF DICTIONARY
+	// label looks like "Anan S. (Class 5A)"; students without a class show "No class"
+	RETURN DB_Fetch("
+		SELECT Student.studentID, Student.studentName,
+		       Student.studentName || ' (' || COALESCE(Class.className, 'No class') || ')' AS label
+		FROM Student
+		LEFT JOIN Class ON Class.classID = Student.classID
+		WHERE Student.studentName LIKE ?
+		ORDER BY Student.studentName", ["%" + search + "%"])
+ENDFUNCTION
+
+FUNCTION DB_GetSubjects() RETURNS ARRAY OF DICTIONARY
+	RETURN DB_Fetch("SELECT subjectID, subjectName FROM Subject ORDER BY subjectName", [])
+ENDFUNCTION
+
+FUNCTION DB_GetClasses() RETURNS ARRAY OF DICTIONARY
+	RETURN DB_Fetch("SELECT classID, className FROM Class ORDER BY className", [])
+ENDFUNCTION
+
+// One row per subject the student has exams in. maxScore = number of exams * MAX_SCORE.
+FUNCTION DB_GetStudentSummary(studentID : INTEGER) RETURNS ARRAY OF DICTIONARY
+	RETURN DB_Fetch("
+		SELECT Enrollment.enrollID, Subject.subjectName,
+		       COUNT(Exam.examID)               AS exams,
+		       SUM(Exam.score)                  AS total,
+		       COUNT(Exam.examID) * " + MAX_SCORE + " AS maxScore,
+		       AVG(Exam.score)                  AS average
+		FROM Enrollment
+		JOIN Subject ON Subject.subjectID = Enrollment.subjectID
+		JOIN Exam    ON Exam.enrollID     = Enrollment.enrollID
+		WHERE Enrollment.studentID = ?
+		GROUP BY Enrollment.enrollID
+		ORDER BY Subject.subjectName", [studentID])
+ENDFUNCTION
+
+FUNCTION DB_GetExamsByEnrollment(enrollID : INTEGER) RETURNS ARRAY OF DICTIONARY
+	// term is text, so "Term 10" sorts before "Term 2"; use a numeric term column if that matters
+	RETURN DB_Fetch("SELECT term, score FROM Exam WHERE enrollID = ? ORDER BY term", [enrollID])
+ENDFUNCTION
+
+/*
+	One row per enrolment (student + subject) that has at least one exam.
+	subjectID / classID are optional filters, failedOnly keeps results with average < PASS_MARK.
+	The ORDER BY text is chosen from fixed strings, never built from user input.
+*/
+FUNCTION DB_GetRankedReport(subjectID : INTEGER, classID : INTEGER, sortKey : INTEGER, failedOnly : BOOLEAN) RETURNS ARRAY OF DICTIONARY
+	DECLARE query : STRING
+	DECLARE params : ARRAY
+	DECLARE orderBy : STRING
+
+	SET params = []
+	SET query = "
+		SELECT Student.studentName, Subject.subjectName,
+		       COUNT(Exam.examID)               AS exams,
+		       SUM(Exam.score)                  AS total,
+		       COUNT(Exam.examID) * " + MAX_SCORE + " AS maxScore,
+		       AVG(Exam.score)                  AS average
+		FROM Exam
+		JOIN Enrollment ON Enrollment.enrollID = Exam.enrollID
+		JOIN Student    ON Student.studentID   = Enrollment.studentID
+		JOIN Subject    ON Subject.subjectID   = Enrollment.subjectID
+		WHERE 1 = 1"
+
+	IF subjectID <> NULL THEN
+		SET query = query + " AND Enrollment.subjectID = ?"
+		APPEND subjectID TO params
+	ENDIF
+
+	IF classID <> NULL THEN
+		SET query = query + " AND Student.classID = ?"
+		APPEND classID TO params
+	ENDIF
+
+	SET query = query + " GROUP BY Enrollment.enrollID"
+
+	IF failedOnly THEN
+		SET query = query + " HAVING AVG(Exam.score) < ?"
+		APPEND PASS_MARK TO params
+	ENDIF
+
+	CASE OF sortKey
+		1 : SET orderBy = "total DESC"
+		2 : SET orderBy = "total ASC"
+		3 : SET orderBy = "average DESC"
+		4 : SET orderBy = "average ASC"
+		5 : SET orderBy = "(AVG(Exam.score) < " + PASS_MARK + ") DESC, average ASC"
+	ENDCASE
+
+	// studentName and subjectName break ties so the order is stable between redraws
+	SET query = query + " ORDER BY " + orderBy + ", Student.studentName, Subject.subjectName"
+
+	RETURN DB_Fetch(query, params)
+ENDFUNCTION
