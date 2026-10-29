@@ -1,0 +1,156 @@
+PROCEDURE StudentReport()
+
+    REPEAT
+        OUTPUT "Enter student name or 0 to cancel"
+        INPUT studentName
+
+        IF studentName = "0" THEN
+            RETURN TO ReportMenu
+        END IF
+
+        students = DATABASE.FindStudentsByName(studentName)
+
+        IF students is empty THEN
+            OUTPUT "Student not found. Please try again."
+        ELSE
+            BREAK
+        END IF
+
+    FOREVER
+
+    OUTPUT "Sort by:"
+    OUTPUT "1. totalScore"
+    OUTPUT "2. averageScore"
+    INPUT sortChoice
+
+    IF sortChoice = "0" THENs
+        RETURN TO StudentSelection
+    END IF
+
+    WHILE sortChoice is invalid
+        OUTPUT "Invalid sorting option. Please try again."
+        INPUT sortChoice
+
+        IF sortChoice = "0" THEN
+            RETURN TO ReportMenu
+        END IF
+    END WHILE
+
+    report = ReportService.GenerateStudentReport(
+                 students,
+                 sortChoice
+             )
+
+    OUTPUT report
+
+END PROCEDURE
+
+
+
+//=========
+
+
+
+PROCEDURE SubjectReport()
+
+    REPEAT
+        OUTPUT "Enter subject name or 0 to cancel"
+        INPUT subjectName
+
+        IF subjectName = "0" THEN
+            RETURN TO ReportMenu
+        END IF
+
+        subject = DATABASE.FindSubject(subjectName)
+
+        IF subject does not exist THEN
+            OUTPUT "Subject not found. Please try again."
+        ELSE
+            BREAK
+        END IF
+
+    FOREVER
+
+    OUTPUT "Sort by:"
+    OUTPUT "1. name"
+    OUTPUT "2. ID"
+    OUTPUT "3. totalScore"
+    OUTPUT "4. averageScore"
+    INPUT sortChoice
+
+    IF sortChoice = "0" THEN
+        RETURN TO MAIN MENU
+    END IF
+
+    WHILE sortChoice is invalid
+        OUTPUT "Invalid sorting option. Please try again."
+        INPUT sortChoice
+
+        IF sortChoice = "0" THEN
+            RETURN TO ReportMenu
+        END IF
+    END WHILE
+
+    report = ReportService.GenerateSubjectReport(
+                 subject,
+                 sortChoice
+             )
+
+    OUTPUT report
+
+END PROCEDURE
+
+
+
+//=========
+
+
+
+PROCEDURE ClassReport()
+
+    REPEAT
+        OUTPUT "Enter class name or 0 to cancel"
+        INPUT className
+
+        IF className = "0" THEN
+            RETURN TO ReportMenu
+        END IF
+
+        class = DATABASE.FindClass(className)
+
+        IF class does not exist THEN
+            OUTPUT "Class not found. Please try again."
+        ELSE
+            BREAK
+        END IF
+
+    FOREVER
+
+    OUTPUT "Sort by:"
+    OUTPUT "1. name"
+    OUTPUT "2. ID"
+    OUTPUT "3. totalScore"
+    OUTPUT "4. averageScore"
+    INPUT sortChoice
+
+    IF sortChoice = "0" THEN
+        RETURN TO ReportMenu
+    END IF
+
+    WHILE sortChoice is invalid
+        OUTPUT "Invalid sorting option. Please try again."
+        INPUT sortChoice
+
+        IF sortChoice = "0" THEN
+            RETURN TO ReportMenu
+        END IF
+    END WHILE
+
+    report = ReportService.GenerateClassReport(
+                 class,
+                 sortChoice
+             )
+
+    OUTPUT report
+
+END PROCEDURE

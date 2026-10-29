@@ -427,7 +427,7 @@ FUNCTION DB_GetStudents(search : STRING) RETURNS ARRAY OF DICTIONARY
 		       Student.studentName || ' (' || COALESCE(Class.className, 'No class') || ')' AS label
 		FROM Student
 		LEFT JOIN Class ON Class.classID = Student.classID
-		WHERE Student.studentName LIKE ?
+		WHERE Student.studentName LIKE ?]
 		ORDER BY Student.studentName", ["%" + search + "%"])
 ENDFUNCTION
 

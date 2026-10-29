@@ -1,0 +1,32 @@
+PROCEDURE ReportMenu()
+
+    REPEAT
+        OUTPUT "
+		===== REPORT MENU =====
+         1. Back
+         2. StudentReport
+         3. SubjectReport
+         4. ClassReport
+		 "
+
+        INPUT operation
+
+        IF operation = "1" THEN
+            RETURN
+
+        ELSE IF operation = "2" THEN
+            CALL StudentReport()
+
+        ELSE IF operation = "3" THEN
+            CALL SubjectReport()
+
+        ELSE IF operation = "4" THEN
+            CALL ClassReport()
+
+        ELSE
+            DISPLAY "Invalid option. Please try again."
+        END IF
+
+    UNTIL user selects Back
+
+END PROCEDURE
